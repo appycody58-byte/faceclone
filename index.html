@@ -29,7 +29,7 @@
               class="w-full bg-[#1877F2] text-white font-semibold py-3 rounded-lg hover:bg-[#166FE5] transition">
         Continue
       </button>
-      <p class="text-xs text-gray-500 text-center mt-4">Demo only • Data stored locally in your browser</p>
+      <p class="text-xs text-gray-500 text-center mt-4">Demo with serverless backend • Posts shared across users</p>
     </div>
   </div>
 
@@ -73,7 +73,6 @@
     </header>
 
     <div class="max-w-6xl mx-auto px-4 py-4 flex gap-4">
-      <!-- Left Sidebar -->
       <aside class="hidden lg:block w-64 flex-shrink-0">
         <div class="sticky top-20 space-y-1">
           <a href="#" class="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-200">
@@ -89,9 +88,7 @@
         </div>
       </aside>
 
-      <!-- Main Feed -->
       <main class="flex-1 max-w-xl mx-auto space-y-4">
-        <!-- Create Post -->
         <div class="bg-white rounded-xl shadow-sm p-4">
           <div class="flex gap-3">
             <div class="w-10 h-10 rounded-full bg-[#1877F2] text-white flex items-center justify-center font-semibold flex-shrink-0" id="createAvatar">U</div>
@@ -106,7 +103,6 @@
           </div>
         </div>
 
-        <!-- Stories -->
         <div class="bg-white rounded-xl shadow-sm p-3 overflow-x-auto scrollbar-hide">
           <div class="flex gap-2">
             <div class="flex-shrink-0 w-28 h-48 rounded-xl bg-gradient-to-b from-gray-200 to-gray-400 relative overflow-hidden cursor-pointer">
@@ -128,11 +124,9 @@
           </div>
         </div>
 
-        <!-- Posts Feed -->
         <div id="feed" class="space-y-4"></div>
       </main>
 
-      <!-- Right Sidebar -->
       <aside class="hidden xl:block w-72 flex-shrink-0">
         <div class="sticky top-20">
           <h3 class="text-gray-500 font-semibold mb-3 px-2">Contacts</h3>
@@ -192,25 +186,31 @@
   <script>
     let currentUser = null;
     let posts = [];
+    const API = '/api/posts';
 
-    function init() {
+    async function init() {
       const savedUser = localStorage.getItem('fc_user');
       if (savedUser) {
         currentUser = JSON.parse(savedUser);
         showApp();
       }
-      const savedPosts = localStorage.getItem('fc_posts');
-      if (savedPosts) {
-        posts = JSON.parse(savedPosts);
-      } else {
-        posts = [
-          { id: 1, author: 'Alex Rivera', avatar: 'A', content: 'Just launched my new side project 🚀 Feeling excited about the future of social apps!', time: '2h', likes: 42, liked: false, comments: [{ author: 'Jordan Lee', text: 'Congrats! Looking forward to trying it.' }, { author: 'Sam Patel', text: 'Awesome work 👏' }], showComments: false },
-          { id: 2, author: 'Jordan Lee', avatar: 'J', content: 'Beautiful sunset today 🌅 Nature always finds a way to surprise us.', time: '5h', likes: 128, liked: false, comments: [], showComments: false },
-          { id: 3, author: 'Sam Patel', avatar: 'S', content: 'Who else is coding on a Wednesday night? 💻 Drop your stack in the comments!', time: '8h', likes: 67, liked: false, comments: [{ author: 'Alex Rivera', text: 'Next.js + Tailwind all the way 🔥' }], showComments: false }
-        ];
-        savePosts();
+      await loadPosts();
+    }
+
+    async function loadPosts() {
+      try {
+        const res = await fetch(API);
+        if (!res.ok) throw new Error('Failed to load');
+        posts = await res.json();
+        if (currentUser) {
+          posts.forEach(p => { p.liked = (p.likedBy || []).includes(currentUser.name); });
+        }
+        renderFeed();
+      } catch (e) {
+        console.error(e);
+        posts = [];
+        renderFeed();
       }
-      renderFeed();
     }
 
     function doLogin() {
@@ -225,7 +225,7 @@
       document.getElementById('loginModal').classList.add('hidden');
       document.getElementById('app').classList.remove('hidden');
       updateUserUI();
-      renderFeed();
+      loadPosts();
     }
 
     function updateUserUI() {
@@ -272,28 +272,25 @@
       }
     });
 
-    function createPost() {
+    async function createPost() {
       const content = document.getElementById('postContent').value.trim();
-      if (!content) return;
-      const newPost = {
-        id: Date.now(),
-        author: currentUser.name,
-        avatar: currentUser.avatar,
-        content: content,
-        time: 'Just now',
-        likes: 0,
-        liked: false,
-        comments: [],
-        showComments: false
-      };
-      posts.unshift(newPost);
-      savePosts();
-      renderFeed();
-      closeCreateModal();
-    }
-
-    function savePosts() {
-      localStorage.setItem('fc_posts', JSON.stringify(posts));
+      if (!content || !currentUser) return;
+      try {
+        const res = await fetch(API, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ author: currentUser.name, avatar: currentUser.avatar, content })
+        });
+        if (!res.ok) throw new Error('Create failed');
+        const newPost = await res.json();
+        newPost.liked = false;
+        posts.unshift(newPost);
+        renderFeed();
+        closeCreateModal();
+      } catch (e) {
+        alert('Could not create post. Backend may be starting — try again in a few seconds.');
+        console.error(e);
+      }
     }
 
     function renderFeed() {
@@ -314,12 +311,12 @@
             </div>
             <p class="mt-3 text-[15px] whitespace-pre-wrap">${escapeHtml(post.content)}</p>
           </div>
-          ${(post.likes > 0 || post.comments.length > 0) ? `
+          ${(post.likes > 0 || (post.comments && post.comments.length > 0)) ? `
           <div class="px-4 py-1 flex items-center justify-between text-sm text-gray-500 border-b">
             <div class="flex items-center gap-1">
               ${post.likes > 0 ? `<span class="w-5 h-5 rounded-full bg-[#1877F2] text-white text-xs flex items-center justify-center"><i class="fas fa-thumbs-up"></i></span> ${post.likes}` : ''}
             </div>
-            <div>${post.comments.length > 0 ? post.comments.length + ' comment' + (post.comments.length > 1 ? 's' : '') : ''}</div>
+            <div>${post.comments && post.comments.length > 0 ? post.comments.length + ' comment' + (post.comments.length > 1 ? 's' : '') : ''}</div>
           </div>` : ''}
           <div class="px-2 py-1 flex border-b">
             <button onclick="toggleLike(${post.id})" class="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg hover:bg-gray-100 ${post.liked ? 'text-[#1877F2]' : 'text-gray-600'}">
@@ -336,7 +333,7 @@
             </button>
           </div>
           <div id="comments-${post.id}" class="${post.showComments ? '' : 'hidden'} p-3 space-y-3">
-            ${post.comments.map(c => `
+            ${(post.comments || []).map(c => `
               <div class="flex gap-2">
                 <div class="w-8 h-8 rounded-full bg-gray-400 text-white flex items-center justify-center text-xs font-semibold flex-shrink-0">${c.author.charAt(0)}</div>
                 <div class="bg-[#F0F2F5] rounded-2xl px-3 py-2 flex-1">
@@ -359,13 +356,22 @@
       `).join('');
     }
 
-    function toggleLike(id) {
-      const post = posts.find(p => p.id === id);
-      if (!post) return;
-      post.liked = !post.liked;
-      post.likes += post.liked ? 1 : -1;
-      savePosts();
-      renderFeed();
+    async function toggleLike(id) {
+      if (!currentUser) return;
+      try {
+        const res = await fetch(API, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id, action: 'like', user: currentUser.name })
+        });
+        if (!res.ok) throw new Error('Like failed');
+        const updated = await res.json();
+        const idx = posts.findIndex(p => p.id === id);
+        if (idx !== -1) {
+          posts[idx] = { ...updated, liked: (updated.likedBy || []).includes(currentUser.name), showComments: posts[idx].showComments };
+          renderFeed();
+        }
+      } catch (e) { console.error(e); }
     }
 
     function toggleComments(id) {
@@ -381,16 +387,27 @@
       }
     }
 
-    function addComment(id) {
+    async function addComment(id) {
       const input = document.getElementById('comment-input-' + id);
       const text = input ? input.value.trim() : '';
       if (!text || !currentUser) return;
-      const post = posts.find(p => p.id === id);
-      if (!post) return;
-      post.comments.push({ author: currentUser.name, text: text });
-      post.showComments = true;
-      savePosts();
-      renderFeed();
+      try {
+        const res = await fetch(API, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id, action: 'comment', user: currentUser.name, text })
+        });
+        if (!res.ok) throw new Error('Comment failed');
+        const updated = await res.json();
+        const idx = posts.findIndex(p => p.id === id);
+        if (idx !== -1) {
+          posts[idx] = { ...updated, liked: posts[idx].liked, showComments: true };
+          renderFeed();
+        }
+      } catch (e) {
+        console.error(e);
+        alert('Could not add comment');
+      }
     }
 
     function escapeHtml(text) {
